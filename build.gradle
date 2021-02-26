@@ -24,7 +24,11 @@ plugins {
     id 'com.jfrog.bintray' version '1.8.4'
     id 'com.github.dcendents.android-maven' version '2.1'
     id 'com.github.ben-manes.versions' version '0.28.0'
+    id 'org.jlleitschuh.gradle.ktlint' version '9.4.1'
+    id 'io.gitlab.arturbosch.detekt' version '1.16.0-RC2'
 }
+
+tasks.detekt.jvmTarget = "1.8"
 
 ext.isSnapshot = { VERSION_NAME.endsWith('-SNAPSHOT') }
 ext.isRelease = { ['uploadArchives', 'bintrayUpload'].any { gradle.startParameter.taskNames.contains(it) } }
