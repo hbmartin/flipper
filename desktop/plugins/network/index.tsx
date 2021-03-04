@@ -37,6 +37,7 @@ import {
   ResponseFollowupChunk,
   Header,
   MockRoute,
+  ProtobufDefinition,
 } from './types';
 import {convertRequestToCurlCommand, getHeaderValue, decodeBody} from './utils';
 import RequestDetails from './RequestDetails';
@@ -180,6 +181,10 @@ export function plugin(client: PluginClient<Events, Methods>) {
     {},
     {persist: 'responses'},
   );
+    const protobufDefinitions = createState<{[path: string]: ProtobufDefinition}>(
+    {},
+    {persist: 'protobufDefinitions'},
+  );
 
   const partialResponses = createState<{
     [id: string]: {
@@ -217,6 +222,12 @@ export function plugin(client: PluginClient<Events, Methods>) {
   client.onMessage('newResponse', (data) => {
     responses.update((draft) => {
       draft[data.id] = data;
+    });
+  });
+
+  client.onMessage('addProtobufDefinition', (data) => {
+    protobufDefinitions.update((draft) => {
+      draft[data.path] = data;
     });
   });
 
@@ -564,6 +575,7 @@ export function plugin(client: PluginClient<Events, Methods>) {
     isDeeplinked,
     requests,
     responses,
+    protobufDefinitions,
     partialResponses,
     networkRouteManager,
     clearLogs,
@@ -596,6 +608,7 @@ export function Component() {
   const isMockResponseSupported = useValue(instance.isMockResponseSupported);
   const showMockResponseDialog = useValue(instance.showMockResponseDialog);
   const networkRouteManager = useValue(instance.networkRouteManager);
+  const protobufDefinitions = useValue(instance.protobufDefinitions);
 
   return (
     <Layout.Container grow={true}>
@@ -603,6 +616,7 @@ export function Component() {
         <NetworkTable
           requests={requests || {}}
           responses={responses || {}}
+          protobufDefinitions={protobufDefinitions || {}}
           routes={routes}
           onMockButtonPressed={instance.onMockButtonPressed}
           onCloseButtonPressed={instance.onCloseButtonPressed}
@@ -623,6 +637,7 @@ export function Component() {
 type NetworkTableProps = {
   requests: {[id: string]: Request};
   responses: {[id: string]: Response};
+  protobufDefinitions: {[id: string]: string};
   routes: {[id: string]: Route};
   clear: () => void;
   copyRequestCurlCommand: () => void;
@@ -641,6 +656,7 @@ type NetworkTableState = {
   highlightedRows: Set<string> | null | undefined;
   requests: {[id: string]: Request};
   responses: {[id: string]: Response};
+  protobufDefinitions: {[id: string]: string};
 };
 
 function formatTimestamp(timestamp: number): string {
@@ -767,6 +783,7 @@ function calculateState(
   props: {
     requests: {[id: string]: Request};
     responses: {[id: string]: Response};
+    protobufDefinitions:  {[path: string]: string};
   },
   nextProps: NetworkTableProps,
   rows: TableRows = [],
@@ -820,6 +837,7 @@ function calculateState(
     highlightedRows: nextProps.highlightedRows,
     requests: props.requests,
     responses: props.responses,
+    protobufDefinitions: props.protobufDefinitions,
   };
 }
 
@@ -829,6 +847,7 @@ function Sidebar() {
   const responses = useValue(instance.responses);
   const selectedIds = useValue(instance.selectedIds);
   const detailBodyFormat = useValue(instance.detailBodyFormat);
+  const protobufDefinitions = useValue(instance.protobufDefinitions);
   const selectedId = selectedIds.length === 1 ? selectedIds[0] : null;
 
   if (!selectedId) {
@@ -847,6 +866,7 @@ function Sidebar() {
         response={responses[selectedId]}
         bodyFormat={detailBodyFormat}
         onSelectFormat={instance.onSelectFormat}
+        protobufDefinition={protobufDefinitions[requestWithId.url].definition}
       />
     </DetailSidebar>
   );
@@ -859,7 +879,7 @@ class NetworkTable extends PureComponent<NetworkTableProps, NetworkTableState> {
 
   constructor(props: NetworkTableProps) {
     super(props);
-    this.state = calculateState({requests: {}, responses: {}}, props);
+    this.state = calculateState({requests: {}, responses: {}, protobufDefinitions: {}}, props);
   }
 
   UNSAFE_componentWillReceiveProps(nextProps: NetworkTableProps) {

@@ -31,6 +31,11 @@ export type Response = {
   index?: number;
 };
 
+export type ProtobufDefinition = {
+  path: string;
+  definition: string;
+};
+
 export type ResponseFollowupChunk = {
   id: string;
   totalChunks: number;
