@@ -27,7 +27,7 @@ import React from 'react';
 
 import querystring from 'querystring';
 import xmlBeautifier from 'xml-beautifier';
-import protobuf from 'protobufjs';
+import {ProtobufDefinitionsRepository} from "./ProtobufDefinitionsRepository";
 
 const WrappingText = styled(Text)({
   wordWrap: 'break-word',
@@ -55,7 +55,6 @@ const KeyValueColumns = {
 type RequestDetailsProps = {
   request: Request;
   response: Response | null | undefined;
-  protobufDefinition: string;
   bodyFormat: string;
   onSelectFormat: (bodyFormat: string) => void;
 };
@@ -111,7 +110,7 @@ export default class RequestDetails extends Component<RequestDetailsProps> {
   };
 
   render() {
-    const {request, response, protobufDefinition, bodyFormat, onSelectFormat} = this.props;
+    const {request, response, bodyFormat, onSelectFormat} = this.props;
     const url = new URL(request.url);
 
     const formattedText = bodyFormat == BodyOptions.formatted;
@@ -162,7 +161,6 @@ export default class RequestDetails extends Component<RequestDetailsProps> {
             <RequestBodyInspector
               formattedText={formattedText}
               request={request}
-              protobufDefinition={protobufDefinition}
             />
           </Panel>
         ) : null}
@@ -188,7 +186,6 @@ export default class RequestDetails extends Component<RequestDetailsProps> {
                 formattedText={formattedText}
                 request={request}
                 response={response}
-                protobufDefinition={protobufDefinition}
               />
             </Panel>
           </>
@@ -319,14 +316,13 @@ type BodyFormatter = {
 class RequestBodyInspector extends Component<{
   request: Request;
   formattedText: boolean;
-  protobufDefinition: string;
 }> {
   render() {
-    const {request, formattedText, protobufDefinition} = this.props;
+    const {request, formattedText} = this.props;
     if (request.data == null || request.data.trim() === '') {
       return <Empty />;
     }
-    const bodyFormatters = formattedText ? TextBodyFormatters : BodyFormatters.concat(new ProtobufFormatter(protobufDefinition));
+    const bodyFormatters = formattedText ? TextBodyFormatters : BodyFormatters;
     for (const formatter of bodyFormatters) {
       if (formatter.formatRequest) {
         try {
@@ -357,14 +353,13 @@ class ResponseBodyInspector extends Component<{
   response: Response;
   request: Request;
   formattedText: boolean;
-  protobufDefinition: string;
 }> {
   render() {
-    const {request, response, formattedText, protobufDefinition} = this.props;
+    const {request, response, formattedText} = this.props;
     if (response.data == null || response.data.trim() === '') {
       return <Empty />;
     }
-    const bodyFormatters = formattedText ? TextBodyFormatters : BodyFormatters.concat(new ProtobufFormatter(protobufDefinition));
+    const bodyFormatters = formattedText ? TextBodyFormatters : BodyFormatters;
     for (const formatter of bodyFormatters) {
       if (formatter.formatResponse) {
         try {
@@ -811,50 +806,53 @@ class BinaryFormatter {
 }
 
 class ProtobufFormatter {
-  protobufDefinition: string;
-
-  constructor(protobufDefinition: string) {
-    this.protobufDefinition = protobufDefinition;
-  }
+  private protobufDefinitionRepository = ProtobufDefinitionsRepository.getInstance();
 
   formatRequest(request: Request) {
-    return this.format(request);
+    if (getHeaderValue(request.headers, 'content-type') === 'application/x-protobuf') {
+      let protobufDefinition = this.protobufDefinitionRepository.getRequestType(request.method, request.url)
+      if (protobufDefinition == undefined) {
+        return <Text>Could not locate protobuf definition for request body of {request.url}</Text>
+      }
+
+      if (request?.data) {
+        let data = protobufDefinition.decode(this._base64ToArrayBuffer(request.data));
+        return <JSONText>{data.toJSON()}</JSONText>;
+      } else {
+        return <Text>Could not locate request body data for {request.url}</Text>
+      }
+    }
+    return undefined;
   }
 
   formatResponse(request: Request, response: Response) {
-    return this.format(request, response);
+    if (
+        getHeaderValue(response.headers, 'content-type') === 'application/x-protobuf' ||
+        request.url.endsWith(".proto")
+    ) {
+      let protobufDefinition = this.protobufDefinitionRepository.getResponseType(request.method, request.url)
+      if (protobufDefinition == undefined) {
+        return <Text>Could not locate protobuf definition for response body of {request.url}</Text>
+      }
+
+      if (response?.data) {
+        let data = protobufDefinition.decode(this._base64ToArrayBuffer(response.data));
+        return <JSONText>{data.toJSON()}</JSONText>;
+      } else {
+        return <Text>Could not locate response body data for {request.url}</Text>
+      }
+    }
+    return undefined;
   }
 
   _base64ToArrayBuffer(base64: string): Uint8Array {
-    var binary_string = window.atob(base64);
-    var len = binary_string.length;
-    var bytes = new Uint8Array(len);
-    for (var i = 0; i < len; i++) {
-        bytes[i] = binary_string.charCodeAt(i);
+    let binary_string = window.atob(base64);
+    let len = binary_string.length;
+    let bytes = new Uint8Array(len);
+    for (let i = 0; i < len; i++) {
+      bytes[i] = binary_string.charCodeAt(i);
     }
     return bytes;
-}
-
-  format(request: Request, response: Response | undefined = undefined) {
-    if (
-      getHeaderValue(request.headers, 'content-type') === 'application/x-protobuf' || 
-      getHeaderValue(response.headers, 'content-type') === 'application/x-protobuf' || 
-      request.url.endsWith(".proto")
-    ) {
-
-      if (this.protobufDefinition == undefined) {
-        return <Text>Could not locate protobuf definition for {request.url}</Text>
-      }
-      const localRoot = protobuf.Root.fromJSON(JSON.parse(this.protobufDefinition));
-      const Person = localRoot.lookupType("tutorial.Person");
-
-      const container = response || request;
-      const data = this._base64ToArrayBuffer(container.data);
-      let localPerson = Person.decode(data);
-
-      return <JSONText>{localPerson.toJSON()}</JSONText>;
-    }
-    return undefined;
   }
 }
 
@@ -867,6 +865,7 @@ const BodyFormatters: Array<BodyFormatter> = [
   new JSONFormatter(),
   new FormUrlencodedFormatter(),
   new XMLTextFormatter(),
+  new ProtobufFormatter(),
   new BinaryFormatter()
 ];
 

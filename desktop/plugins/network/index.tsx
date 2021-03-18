@@ -38,7 +38,9 @@ import {
   Header,
   MockRoute,
   ProtobufDefinition,
+  AddProtobufEvent,
 } from './types';
+import {ProtobufDefinitionsRepository} from "./ProtobufDefinitionsRepository";
 import {convertRequestToCurlCommand, getHeaderValue, decodeBody} from './utils';
 import RequestDetails from './RequestDetails';
 import {clipboard} from 'electron';
@@ -63,6 +65,7 @@ type Events = {
   newRequest: Request;
   newResponse: Response;
   partialResponse: Response | ResponseFollowupChunk;
+  addProtobufDefinitions: AddProtobufEvent;
 };
 
 type Methods = {
@@ -225,10 +228,11 @@ export function plugin(client: PluginClient<Events, Methods>) {
     });
   });
 
-  client.onMessage('addProtobufDefinition', (data) => {
-    protobufDefinitions.update((draft) => {
-      draft[data.path] = data;
-    });
+  client.onMessage('addProtobufDefinitions', (data) => {
+    let repository = ProtobufDefinitionsRepository.getInstance();
+    for (let [baseUrl, definitions] of Object.entries(data)) {
+      repository.addDefinitions(baseUrl, definitions);
+    }
   });
 
   client.onMessage('partialResponse', (data) => {
@@ -243,7 +247,7 @@ export function plugin(client: PluginClient<Events, Methods>) {
         The remaining chunks will be sent in ResponseFollowupChunks, which each contain another piece of the payload, along with their index from 1 onwards.
         The payload of each chunk is individually encoded in the same way that full responses are.
 
-        The order that initialResponse, and followup chunks are recieved is not guaranteed to be in index order.
+        The order that initialResponse, and followup chunks are received is not guaranteed to be in index order.
     */
     const message: Response | ResponseFollowupChunk = data as
       | Response
@@ -608,7 +612,7 @@ export function Component() {
   const isMockResponseSupported = useValue(instance.isMockResponseSupported);
   const showMockResponseDialog = useValue(instance.showMockResponseDialog);
   const networkRouteManager = useValue(instance.networkRouteManager);
-  const protobufDefinitions = useValue(instance.protobufDefinitions);
+  useValue(instance.protobufDefinitions);
 
   return (
     <Layout.Container grow={true}>
@@ -616,7 +620,6 @@ export function Component() {
         <NetworkTable
           requests={requests || {}}
           responses={responses || {}}
-          protobufDefinitions={protobufDefinitions || {}}
           routes={routes}
           onMockButtonPressed={instance.onMockButtonPressed}
           onCloseButtonPressed={instance.onCloseButtonPressed}
@@ -637,7 +640,6 @@ export function Component() {
 type NetworkTableProps = {
   requests: {[id: string]: Request};
   responses: {[id: string]: Response};
-  protobufDefinitions: {[id: string]: string};
   routes: {[id: string]: Route};
   clear: () => void;
   copyRequestCurlCommand: () => void;
@@ -656,7 +658,6 @@ type NetworkTableState = {
   highlightedRows: Set<string> | null | undefined;
   requests: {[id: string]: Request};
   responses: {[id: string]: Response};
-  protobufDefinitions: {[id: string]: string};
 };
 
 function formatTimestamp(timestamp: number): string {
@@ -783,7 +784,6 @@ function calculateState(
   props: {
     requests: {[id: string]: Request};
     responses: {[id: string]: Response};
-    protobufDefinitions:  {[path: string]: string};
   },
   nextProps: NetworkTableProps,
   rows: TableRows = [],
@@ -837,7 +837,6 @@ function calculateState(
     highlightedRows: nextProps.highlightedRows,
     requests: props.requests,
     responses: props.responses,
-    protobufDefinitions: props.protobufDefinitions,
   };
 }
 
@@ -847,7 +846,6 @@ function Sidebar() {
   const responses = useValue(instance.responses);
   const selectedIds = useValue(instance.selectedIds);
   const detailBodyFormat = useValue(instance.detailBodyFormat);
-  const protobufDefinitions = useValue(instance.protobufDefinitions);
   const selectedId = selectedIds.length === 1 ? selectedIds[0] : null;
 
   if (!selectedId) {
@@ -866,7 +864,6 @@ function Sidebar() {
         response={responses[selectedId]}
         bodyFormat={detailBodyFormat}
         onSelectFormat={instance.onSelectFormat}
-        protobufDefinition={protobufDefinitions[requestWithId.url].definition}
       />
     </DetailSidebar>
   );
@@ -879,7 +876,7 @@ class NetworkTable extends PureComponent<NetworkTableProps, NetworkTableState> {
 
   constructor(props: NetworkTableProps) {
     super(props);
-    this.state = calculateState({requests: {}, responses: {}, protobufDefinitions: {}}, props);
+    this.state = calculateState({requests: {}, responses: {}}, props);
   }
 
   UNSAFE_componentWillReceiveProps(nextProps: NetworkTableProps) {
