@@ -65,7 +65,7 @@
     "rsocket-flowable": "^0.0.22",
     "rsocket-tcp-server": "^0.0.19",
     "rsocket-types": "^0.0.16",
-    "semver": "^7.3.2",
+    "semver": "^7.3.4",
     "string-natural-compare": "^3.0.0",
     "tmp": "^0.2.1",
     "uuid": "^8.3.2",
